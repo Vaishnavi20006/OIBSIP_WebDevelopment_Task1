@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Basic Calculator</title>
+  <style>
+    :root{
+      --bg: #f3f4f6;
+      --panel: #111827;
+      --key: #e5e7eb;
+      --op: #f59e0b;
+      --accent: #10b981;
+      --txt-dark: #0f172a;
+      --txt-light: #ffffff;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+
+    html,body{height:100%;margin:0}
+    body{
+      background: linear-gradient(180deg,var(--bg),#ffffff);
+      display:flex;align-items:center;justify-content:center;padding:32px;
+      color:var(--txt-dark);
+    }
+
+    .calculator{
+      width:360px;max-width:96vw;background:var(--panel);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(2,6,23,.35);
+      color:var(--txt-light);
+    }
+
+    /* display area */
+    .display{
+      background:rgba(255,255,255,0.04);border-radius:10px;padding:14px 16px;margin-bottom:12px;min-height:64px;
+      display:flex;flex-direction:column;justify-content:center;align-items:flex-end;gap:6px;word-break:break-all;
+    }
+    .display .expression{font-size:14px;opacity:.7;color:rgba(255,255,255,0.75)}
+    .display .result{font-size:28px;font-weight:600}
+
+    /* grid keys */
+    .keys{
+      display:grid;grid-template-columns:repeat(4,1fr);gap:10px;
+    }
+
+    button.key{
+      height:56px;border-radius:10px;border:0;background:var(--key);font-size:18px;font-weight:600;cursor:pointer;box-shadow:0 4px 8px rgba(2,6,23,0.2);
+    }
+    button.key:active{transform:translateY(1px)}
+
+    button.op{background:var(--op);color:var(--txt-light)}
+    button.wide{grid-column:span 2}
+    button.control{background:rgba(255,255,255,0.06)}
+
+    /* responsive */
+    @media (max-width:420px){
+      .calculator{width:320px}
+      .display .result{font-size:24px}
+      button.key{height:52px}
+    }
+  </style>
+</head>
+<body>
+  <main class="calculator" role="application" aria-label="Basic calculator">
+    <div class="display" aria-live="polite">
+      <div class="expression" id="expression">&nbsp;</div>
+      <div class="result" id="result">0</div>
+    </div>
+
+    <div class="keys" role="group" aria-label="Calculator keys">
+      <button class="key control" data-action="clear">C</button>
+      <button class="key control" data-action="plusminus">±</button>
+      <button class="key control" data-action="percent">%</button>
+      <button class="key op" data-value="/">÷</button>
+
+      <button class="key" data-value="7">7</button>
+      <button class="key" data-value="8">8</button>
+      <button class="key" data-value="9">9</button>
+      <button class="key op" data-value="*">×</button>
+
+      <button class="key" data-value="4">4</button>
+      <button class="key" data-value="5">5</button>
+      <button class="key" data-value="6">6</button>
+      <button class="key op" data-value="-">−</button>
+
+      <button class="key" data-value="1">1</button>
+      <button class="key" data-value="2">2</button>
+      <button class="key" data-value="3">3</button>
+      <button class="key op" data-value="+">+</button>
+
+      <button class="key wide" data-value="0">0</button>
+      <button class="key" data-value=".">.</button>
+      <button class="key op" data-action="equals">=</button>
+    </div>
+  </main>
+
+  <script>
+    (function (){
+      const expressionEl = document.getElementById('expression');
+      const resultEl = document.getElementById('result');
+      const keys = document.querySelectorAll('.key');
+
+      let expr = ''; // user-visible expression (e.g. "12+3")
+      let lastInput = '';
+
+      function updateDisplay(){
+        expressionEl.textContent = expr || '\u00A0';
+        resultEl.textContent = computePreview() ?? '0';
+      }
+
+      function computePreview(){
+        // Try to safely evaluate simple arithmetic expression for preview
+        try{
+          if(!expr) return '0';
+          // replace any Unicode operator with JS operator
+          const safe = expr.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
+          // disallow unsafe characters
+          if(/[^0-9.+\-*/()% ]/.test(safe)) return '';
+          // avoid expressions that end with an operator
+          if(/[+\-*/.% ]$/.test(safe)) return expr.slice(-1) === '%' ? evalPercent(safe) : '';
+          // handle percent specially
+          if(safe.includes('%')){
+            return evalPercent(safe);
+          }
+          const val = Function('return ('+safe+')')();
+          return formatNumber(val);
+        }catch(e){
+          return '';
+        }
+      }
+
+      function evalPercent(s){
+        // Convert sequences like 50% -> 0.5 and also handle 50+10% -> 50 + (50*10/100)
+        // For simplicity, replace n% by (n/100)
+        try{
+          const converted = s.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)');
+          const val = Function('return ('+converted+')')();
+          return formatNumber(val);
+        }catch(e){return ''}
+      }
+
+      function formatNumber(n){
+        if(n == null || n === Infinity || Number.isNaN(n)) return 'Error';
+        // limit to 12 significant digits
+        const str = Number.isFinite(n) ? Number.parseFloat(n.toPrecision(12)).toString() : n.toString();
+        return str;
+      }
+
+      function appendValue(v){
+        // rules: don't allow two operators in a row (except - as negative when appropriate), handle decimals
+        const operators = ['+','-','*','/'];
+
+        if(v === '.'){
+          // prevent multiple decimals in the current number token
+          const tokens = expr.split(/([+\-*/])/);
+          const lastToken = tokens[tokens.length-1] || '';
+          if(lastToken.includes('.')) return;
+          if(lastToken === '') expr += '0';
+          expr += '.';
+          lastInput = '.';
+          return;
+        }
+
+        if(operators.includes(v)){
+          if(expr === '' && v !== '-') return; // cannot start with operator except -
+          if(operators.includes(lastInput)){
+            // replace previous operator with new one
+            expr = expr.slice(0,-1) + v;
+            lastInput = v;
+            return;
+          }
+          expr += v;
+          lastInput = v;
+          return;
+        }
+
+        // numbers
+        expr += v;
+        lastInput = v;
+      }
+
+      function clearAll(){ expr = ''; lastInput = ''; updateDisplay(); }
+      function backspace(){ if(!expr) return; expr = expr.slice(0,-1); lastInput = expr.slice(-1) || ''; updateDisplay(); }
+
+      function toggleSign(){
+        // toggle sign of the last number token
+        const parts = expr.split(/([+\-*/])/);
+        if(parts.length === 1){ // single token
+          if(parts[0].startsWith('-')) parts[0] = parts[0].slice(1); else parts[0] = '-' + parts[0];
+        }else{
+          const last = parts.pop();
+          if(last === '') return;
+          if(last.startsWith('-')) parts.push(last.slice(1)); else parts.push('-'+last);
+        }
+        expr = parts.join('');
+        lastInput = expr.slice(-1) || '';
+      }
+
+      function applyPercent(){
+        // simply append % to allow preview/evalPercent handle it
+        if(!expr) return;
+        // prevent immediate stacking of % signs
+        if(expr.slice(-1) === '%') return;
+        expr += '%';
+        lastInput = '%';
+      }
+
+      function computeResult(){
+        try{
+          if(!expr) return;
+          const safe = expr.replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-');
+          if(/[^0-9.+\-*/()% ]/.test(safe)) { resultEl.textContent = 'Error'; return; }
+          let res;
+          if(safe.includes('%')){
+            const converted = safe.replace(/(\d+(?:\.\d+)?)%/g, '($1/100)');
+            res = Function('return ('+converted+')')();
+          } else {
+            // prevent final char being operator
+            if(/[+\-*/]$/.test(safe)) safe = safe.slice(0,-1);
+            res = Function('return ('+safe+')')();
+          }
+          expr = String(res);
+          lastInput = expr.slice(-1) || '';
+          updateDisplay();
+        }catch(e){ resultEl.textContent = 'Error'; }
+      }
+
+      keys.forEach(k => k.addEventListener('click', (ev)=>{
+        const btn = ev.currentTarget;
+        const v = btn.getAttribute('data-value');
+        const action = btn.getAttribute('data-action');
+        if(action){
+          switch(action){
+            case 'clear': clearAll(); break;
+            case 'equals': computeResult(); break;
+            case 'plusminus': toggleSign(); updateDisplay(); break;
+            case 'percent': applyPercent(); updateDisplay(); break;
+          }
+        } else if(v !== null){
+          appendValue(v);
+          updateDisplay();
+        }
+      }));
+
+      // keyboard support
+      window.addEventListener('keydown',(e)=>{
+        if(e.key >= '0' && e.key <= '9') { appendValue(e.key); updateDisplay(); e.preventDefault(); }
+        else if(e.key === '.' ) { appendValue('.'); updateDisplay(); e.preventDefault(); }
+        else if(e.key === 'Enter' || e.key === '='){ computeResult(); e.preventDefault(); }
+        else if(e.key === 'Backspace'){ backspace(); }
+        else if(e.key === 'Escape'){ clearAll(); }
+        else if(['+','-','*','/'].includes(e.key)){ appendValue(e.key); updateDisplay(); e.preventDefault(); }
+        else if(e.key === '%'){ applyPercent(); updateDisplay(); }
+      });
+
+      // initial render
+      updateDisplay();
+    })();
+  </script>
+</body>
+</html>
